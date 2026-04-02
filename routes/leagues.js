@@ -120,6 +120,29 @@ router.post('/:id/join', async (req, res) => {
   }
 });
 
+// GET ALL leagues (for browsing)
+router.get('/', async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT l.*, u.username as commissioner_username,
+              (SELECT COUNT(*) FROM teams WHERE league_id = l.id) as team_count
+       FROM leagues l
+       JOIN users u ON u.id = l.commissioner_id
+       ORDER BY l.created_at DESC`
+    );
+
+    res.json({
+      success: true,
+      leagues: result.rows
+    });
+  } catch (error) {
+    console.error('Error fetching all leagues:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
 // READ - Get all leagues for a user (as commissioner or participant)
 router.get('/user/:userId', async (req, res) => {
   try {
