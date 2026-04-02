@@ -8,7 +8,6 @@ router.post('/', async (req, res) => {
   try {
     const { name, commissioner_id, season, max_teams, cast_size } = req.body;
 
-    // Validate required fields
     if (!name || !commissioner_id || !season) {
       return res.status(400).json({
         success: false,
@@ -16,7 +15,6 @@ router.post('/', async (req, res) => {
       });
     }
 
-    // Create the league
     const result = await pool.query(
       `INSERT INTO leagues (name, commissioner_id, season, max_teams, status)
        VALUES ($1, $2, $3, $4, $5)
@@ -26,10 +24,8 @@ router.post('/', async (req, res) => {
 
     const league = result.rows[0];
 
-    // Create default scoring rules for this league
     await createDefaultScoringRules(league.id);
     
-    // Create placement bonuses based on cast size (default 18)
     const leagueCastSize = cast_size || 18;
     await createPlacementBonuses(league.id, leagueCastSize);
 
@@ -47,12 +43,88 @@ router.post('/', async (req, res) => {
   }
 });
 
+// JOIN - Join a league with a team name
+router.post('/:id/join', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { user_id, team_name } = req.body;
+
+    if (!user_id || !team_name) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required fields: user_id and team_name are required'
+      });
+    }
+
+    // Check if league exists
+    const leagueResult = await pool.query(
+      'SELECT * FROM leagues WHERE id = $1',
+      [id]
+    );
+
+    if (leagueResult.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'League not found'
+      });
+    }
+
+    const league = leagueResult.rows[0];
+
+    // Check if league is full
+    const teamCountResult = await pool.query(
+      'SELECT COUNT(*) FROM teams WHERE league_id = $1',
+      [id]
+    );
+
+    const teamCount = parseInt(teamCountResult.rows[0].count);
+    if (teamCount >= league.max_teams) {
+      return res.status(400).json({
+        success: false,
+        error: 'League is full'
+      });
+    }
+
+    // Check if user is already in this league
+    const existingTeam = await pool.query(
+      'SELECT * FROM teams WHERE league_id = $1 AND user_id = $2',
+      [id, user_id]
+    );
+
+    if (existingTeam.rows.length > 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'You already have a team in this league'
+      });
+    }
+
+    // Create the team
+    const result = await pool.query(
+      `INSERT INTO teams (league_id, user_id, team_name, total_points)
+       VALUES ($1, $2, $3, 0)
+       RETURNING *`,
+      [id, user_id, team_name]
+    );
+
+    res.json({
+      success: true,
+      message: `Team "${team_name}" joined the league successfully!`,
+      team: result.rows[0]
+    });
+  } catch (error) {
+    console.error('Error joining league:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
 // READ - Get all leagues for a user (as commissioner or participant)
 router.get('/user/:userId', async (req, res) => {
   try {
     const { userId } = req.params;
 
-    // Get leagues where user is commissioner
     const commissionerLeagues = await pool.query(
       `SELECT l.*, 
               (SELECT COUNT(*) FROM teams WHERE league_id = l.id) as team_count
@@ -62,7 +134,6 @@ router.get('/user/:userId', async (req, res) => {
       [userId]
     );
 
-    // Get leagues where user is a participant
     const participantLeagues = await pool.query(
       `SELECT l.*, t.team_name, t.total_points,
               (SELECT COUNT(*) FROM teams WHERE league_id = l.id) as team_count
@@ -92,7 +163,6 @@ router.get('/:id', async (req, res) => {
   try {
     const { id } = req.params;
 
-    // Get league info
     const leagueResult = await pool.query(
       `SELECT l.*, u.username as commissioner_username,
               (SELECT COUNT(*) FROM teams WHERE league_id = l.id) as team_count
@@ -111,7 +181,6 @@ router.get('/:id', async (req, res) => {
 
     const league = leagueResult.rows[0];
 
-    // Get all teams in this league
     const teamsResult = await pool.query(
       `SELECT t.*, u.username
        FROM teams t
@@ -121,7 +190,6 @@ router.get('/:id', async (req, res) => {
       [id]
     );
 
-    // Get scoring rules for this league
     const rulesResult = await pool.query(
       `SELECT * FROM scoring_rules 
        WHERE league_id = $1 
@@ -150,7 +218,6 @@ router.put('/:id', async (req, res) => {
     const { id } = req.params;
     const { name, season, max_teams, draft_date, status } = req.body;
 
-    // Check if league exists
     const checkResult = await pool.query(
       'SELECT * FROM leagues WHERE id = $1',
       [id]
@@ -163,7 +230,6 @@ router.put('/:id', async (req, res) => {
       });
     }
 
-    // Update the league
     const result = await pool.query(
       `UPDATE leagues 
        SET name = COALESCE($1, name),
@@ -195,7 +261,6 @@ router.delete('/:id', async (req, res) => {
   try {
     const { id } = req.params;
 
-    // Check if league exists
     const checkResult = await pool.query(
       'SELECT * FROM leagues WHERE id = $1',
       [id]
@@ -208,7 +273,6 @@ router.delete('/:id', async (req, res) => {
       });
     }
 
-    // Delete the league (CASCADE will delete related teams, scoring_rules, draft_picks)
     await pool.query('DELETE FROM leagues WHERE id = $1', [id]);
 
     res.json({
