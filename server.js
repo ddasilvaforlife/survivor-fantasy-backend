@@ -5,6 +5,7 @@ const pool = require('./database/connection');
 const authRouter = require('./routes/auth');
 const leaguesRouter = require('./routes/leagues');
 const scoringRouter = require('./routes/scoring');
+const draftRouter = require('./routes/draft');
 
 // Middleware
 app.use(cors());
@@ -26,6 +27,8 @@ app.use('/api/leagues', leaguesRouter);
 
 // Scoring routes
 app.use('/api/scoring', scoringRouter);
+
+app.use('/api/draft', draftRouter);
 
 // Get all players
 app.get('/api/players', async (req, res) => {
